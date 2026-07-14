@@ -1,25 +1,12 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
 
-$_SESSION = [];
+require_once __DIR__
+    . '/../../config/auth.php';
 
-if (ini_get("session.use_cookies")) {
-    $params = session_get_cookie_params();
+laundry_destroy_session();
 
-    setcookie(
-        session_name(),
-        '',
-        time() - 42000,
-        $params["path"],
-        $params["domain"],
-        $params["secure"],
-        $params["httponly"]
-    );
-}
-
-session_destroy();
-
-header("Location: login.php");
-exit;
+laundry_redirect(
+    laundry_url(
+        'src/views/public/login.php?logout=1'
+    )
+);

@@ -227,6 +227,8 @@ $totalFailed = $totalCheck - $totalSuccess;
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>System Check - Laundry UMKM</title>
     <link rel="stylesheet" href="../../assets/css/output.css">
     <link rel="stylesheet" href="../../assets/css/modern.css">

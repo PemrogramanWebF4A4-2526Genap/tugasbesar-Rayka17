@@ -145,12 +145,15 @@ function serviceBadge($status)
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Kelola Layanan</title>
     <link rel="stylesheet" href="../../assets/css/output.css">
     <link rel="stylesheet" href="../../assets/css/modern.css">
+    <link rel="stylesheet" href="../../assets/css/responsive.css">
 </head>
 
-<body class="soft-bg-pattern">
+<body class="soft-bg-pattern seller-panel-page">
 
 <?php include "../layouts/seller-sidebar.php"; ?>
 

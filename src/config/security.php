@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/route-helper.php';
+
 function e($value)
 {
     return htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8');
@@ -7,23 +9,30 @@ function e($value)
 
 function redirect($path)
 {
-    header("Location: $path");
-    exit;
+    $path = (string) $path;
+
+    if (!preg_match('~^(?:https?:)?//~i', $path)) {
+        $path = appUrl($path);
+    }
+
+    appRedirect($path);
 }
 
 function requireLogin()
 {
     if (!isset($_SESSION['user'])) {
-        header("Location: ../public/login.php");
-        exit;
+        appRedirect(
+            appUrl('src/views/public/login.php')
+        );
     }
 }
 
 function requireRole($role)
 {
     if (!isset($_SESSION['user']) || $_SESSION['user']['role'] != $role) {
-        header("Location: ../public/login.php");
-        exit;
+        appRedirect(
+            appUrl('src/views/public/login.php')
+        );
     }
 }
 

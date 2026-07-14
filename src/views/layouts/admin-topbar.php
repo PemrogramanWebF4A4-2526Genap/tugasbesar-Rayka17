@@ -1,7 +1,15 @@
 <header class="topbar-shell">
     <div class="topbar-inner">
         <div class="topbar-left">
-            <button type="button" onclick="toggleSidebar()" class="sidebar-toggle">
+            <button
+                type="button"
+                id="adminTopbarSidebarToggle"
+                class="sidebar-toggle"
+                aria-label="Buka atau tutup menu admin"
+                aria-expanded="false"
+                aria-controls="adminSidebarLayout"
+                onclick="window.LaundryAdminSidebar && window.LaundryAdminSidebar.toggle()"
+            >
                 ☰
             </button>
 

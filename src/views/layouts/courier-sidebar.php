@@ -3,6 +3,8 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+require_once __DIR__ . '/../../config/route-helper.php';
+
 $currentPage = basename($_SERVER['PHP_SELF']);
 ?>
 
@@ -27,14 +29,14 @@ $currentPage = basename($_SERVER['PHP_SELF']);
 
     <nav class="sidebar-menu">
 
-        <a href="dashboard.php" class="sidebar-link" style="<?= $currentPage == 'dashboard.php' ? 'background:rgba(255,255,255,.22);' : ''; ?>">
+        <a href="<?= htmlspecialchars(appUrl('src/views/seller/petugas-dashboard.php'), ENT_QUOTES, 'UTF-8'); ?>" class="sidebar-link" style="<?= $currentPage == 'dashboard.php' ? 'background:rgba(255,255,255,.22);' : ''; ?>">
             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z"/>
             </svg>
             Dashboard
         </a>
 
-        <a href="tasks.php" class="sidebar-link" style="<?= $currentPage == 'tasks.php' ? 'background:rgba(255,255,255,.22);' : ''; ?>">
+        <a href="<?= htmlspecialchars(appUrl('src/views/seller/petugas-tasks.php'), ENT_QUOTES, 'UTF-8'); ?>" class="sidebar-link" style="<?= $currentPage == 'tasks.php' ? 'background:rgba(255,255,255,.22);' : ''; ?>">
             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
             </svg>
@@ -44,11 +46,11 @@ $currentPage = basename($_SERVER['PHP_SELF']);
     </nav>
 
     <div class="sidebar-footer">
-        <a href="../public/home.php" class="sidebar-link">
+        <a href="<?= htmlspecialchars(appUrl('src/views/public/home.php'), ENT_QUOTES, 'UTF-8'); ?>" class="sidebar-link">
             Home
         </a>
 
-        <a href="../public/logout.php" class="sidebar-link" style="background:rgba(255,255,255,.18);">
+        <a href="<?= htmlspecialchars(appUrl('src/views/public/logout.php'), ENT_QUOTES, 'UTF-8'); ?>" class="sidebar-link" style="background:rgba(255,255,255,.18);">
             Logout
         </a>
     </div>

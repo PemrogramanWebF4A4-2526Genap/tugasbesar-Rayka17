@@ -99,9 +99,12 @@ function mitraImage($index)
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Laundry UMKM</title>
     <link rel="stylesheet" href="../../assets/css/output.css">
     <link rel="stylesheet" href="../../assets/css/modern.css">
+    <link rel="stylesheet" href="../../assets/css/responsive.css">
 
     <style>
         * {
@@ -677,7 +680,7 @@ function mitraImage($index)
     </style>
 </head>
 
-<body>
+<body class="public-home-page">
 
 <?php include "../layouts/buyer-navbar.php"; ?>
 

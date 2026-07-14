@@ -34,5 +34,5 @@ mysqli_query($conn, "
     WHERE id='$id'
 ");
 
-header("Location: products.php");
+header("Location: services.php");
 exit;

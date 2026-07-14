@@ -171,12 +171,15 @@ function getReplies($conn, $complaint_id)
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Keluhan Saya</title>
     <link rel="stylesheet" href="../../assets/css/output.css">
     <link rel="stylesheet" href="../../assets/css/modern.css">
+    <link rel="stylesheet" href="../../assets/css/responsive.css">
 </head>
 
-<body class="soft-bg-pattern">
+<body class="soft-bg-pattern buyer-panel-page buyer-complaints-page">
 
 <?php include "../layouts/buyer-navbar.php"; ?>
 

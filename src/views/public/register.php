@@ -14,8 +14,8 @@ if (isset($_SESSION['user'])) {
     } elseif ($role == 'seller') {
         header("Location: ../seller/dashboard.php");
         exit;
-    } elseif ($role == 'courier') {
-        header("Location: ../courier/dashboard.php");
+    } elseif ($role == 'courier' || $role == 'petugas' || $role == 'kurir') {
+        header("Location: ../seller/petugas-dashboard.php");
         exit;
     } else {
         header("Location: home.php");
@@ -94,6 +94,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Daftar Pelanggan - Laundry Express</title>
     <link rel="stylesheet" href="../../assets/css/output.css">
     <link rel="stylesheet" href="../../assets/css/modern.css">

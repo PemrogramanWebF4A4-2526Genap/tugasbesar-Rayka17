@@ -280,7 +280,7 @@ if (
     .buyer-navbar {
         position: sticky;
         top: 0;
-        z-index: 9999;
+        z-index: 2147483001;
         width: 100%;
         border-bottom: 1px solid var(--buyer-border);
         background: rgba(255, 255, 255, 0.98);
@@ -532,11 +532,11 @@ if (
 
         .buyer-navbar-menu {
             position: fixed;
-            z-index: 10001;
-            top: 64px;
-            right: 10px;
+            z-index: 2147483000;
+            top: var(--buyer-navbar-menu-top, 64px);
+            right: max(10px, env(safe-area-inset-right));
             bottom: max(10px, env(safe-area-inset-bottom));
-            left: 10px;
+            left: max(10px, env(safe-area-inset-left));
             display: none;
             width: auto;
             max-height: none;
@@ -556,6 +556,21 @@ if (
 
         .buyer-navbar-menu.buyer-navbar-menu-open {
             display: flex;
+        }
+
+        body > .buyer-navbar-menu {
+            position: fixed !important;
+            z-index: 2147483000 !important;
+            top: var(--buyer-navbar-menu-top, 64px) !important;
+            right: max(10px, env(safe-area-inset-right)) !important;
+            bottom: max(10px, env(safe-area-inset-bottom)) !important;
+            left: max(10px, env(safe-area-inset-left)) !important;
+            width: auto !important;
+            max-height: none !important;
+            transform: none !important;
+            isolation: isolate;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
         }
 
         .buyer-navbar-user {
@@ -1099,9 +1114,16 @@ if (
             'buyerNavbarToggleIcon'
         );
 
-    if (!button || !menu || !icon) {
+    const navbar = button
+        ? button.closest('.buyer-navbar')
+        : null;
+
+    if (!button || !menu || !icon || !navbar) {
         return;
     }
+
+    const originalParent = menu.parentNode;
+    const originalNextSibling = menu.nextSibling;
 
     const menuIcon = `
         <path d="M4 7h16"></path>
@@ -1114,6 +1136,61 @@ if (
         <path d="M18 6 6 18"></path>
     `;
 
+    function isMobileMenu() {
+        return window.matchMedia(
+            '(max-width: 1080px)'
+        ).matches;
+    }
+
+    function setMenuTop() {
+        const navbarRect =
+            navbar.getBoundingClientRect();
+
+        const menuTop = Math.max(
+            0,
+            Math.ceil(navbarRect.bottom)
+        );
+
+        menu.style.setProperty(
+            '--buyer-navbar-menu-top',
+            menuTop + 'px'
+        );
+    }
+
+    function moveMenuToBody() {
+        if (menu.parentNode !== document.body) {
+            document.body.appendChild(menu);
+        }
+
+        setMenuTop();
+
+        window.requestAnimationFrame(
+            setMenuTop
+        );
+    }
+
+    function restoreMenuPosition() {
+        if (!originalParent) {
+            return;
+        }
+
+        if (
+            originalNextSibling &&
+            originalNextSibling.parentNode === originalParent
+        ) {
+            originalParent.insertBefore(
+                menu,
+                originalNextSibling
+            );
+        } else {
+            originalParent.appendChild(menu);
+        }
+
+        menu.style.removeProperty(
+            '--buyer-navbar-menu-top'
+        );
+    }
+
     function closeMenu() {
         menu.classList.remove(
             'buyer-navbar-menu-open'
@@ -1124,33 +1201,60 @@ if (
             'false'
         );
 
+        button.setAttribute(
+            'aria-label',
+            'Buka menu'
+        );
+
         icon.innerHTML = menuIcon;
-        document.body.classList.remove('buyer-navbar-open');
+
+        document.body.classList.remove(
+            'buyer-navbar-open'
+        );
+
+        restoreMenuPosition();
+    }
+
+    function openMenu() {
+        moveMenuToBody();
+
+        menu.classList.add(
+            'buyer-navbar-menu-open'
+        );
+
+        button.setAttribute(
+            'aria-expanded',
+            'true'
+        );
+
+        button.setAttribute(
+            'aria-label',
+            'Tutup menu'
+        );
+
+        icon.innerHTML = closeIcon;
+
+        document.body.classList.add(
+            'buyer-navbar-open'
+        );
     }
 
     button.addEventListener(
         'click',
         function (event) {
+            event.preventDefault();
             event.stopPropagation();
 
             const opened =
-                menu.classList.toggle(
+                menu.classList.contains(
                     'buyer-navbar-menu-open'
                 );
 
-            button.setAttribute(
-                'aria-expanded',
-                opened ? 'true' : 'false'
-            );
-
-            icon.innerHTML = opened
-                ? closeIcon
-                : menuIcon;
-
-            document.body.classList.toggle(
-                'buyer-navbar-open',
-                opened
-            );
+            if (opened) {
+                closeMenu();
+            } else {
+                openMenu();
+            }
         }
     );
 
@@ -1167,6 +1271,9 @@ if (
         'click',
         function (event) {
             if (
+                menu.classList.contains(
+                    'buyer-navbar-menu-open'
+                ) &&
                 !menu.contains(event.target) &&
                 !button.contains(event.target)
             ) {
@@ -1178,8 +1285,33 @@ if (
     window.addEventListener(
         'resize',
         function () {
-            if (window.innerWidth > 1080) {
+            if (!isMobileMenu()) {
                 closeMenu();
+                return;
+            }
+
+            if (
+                menu.classList.contains(
+                    'buyer-navbar-menu-open'
+                )
+            ) {
+                setMenuTop();
+            }
+        }
+    );
+
+    window.addEventListener(
+        'orientationchange',
+        function () {
+            if (
+                menu.classList.contains(
+                    'buyer-navbar-menu-open'
+                )
+            ) {
+                window.setTimeout(
+                    setMenuTop,
+                    150
+                );
             }
         }
     );

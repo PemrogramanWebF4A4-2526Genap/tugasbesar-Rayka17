@@ -4,6 +4,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 include "../../config/database.php";
+require_once __DIR__ . "/../../config/payment-storage.php";
 
 if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'buyer') {
     header("Location: ../public/login.php");
@@ -19,6 +20,8 @@ $mitras = mysqli_query($conn, "
     WHERE status='active'
     ORDER BY mitra_name ASC
 ");
+
+$bankAccounts = paymentGetAllBankAccounts();
 
 $services = mysqli_query($conn, "
     SELECT 
@@ -81,6 +84,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$mitra || !$service) {
         header("Location: create-order.php?error=1");
+        exit;
+    }
+
+    $selectedBankAccount = paymentGetMitraBankAccount($mitra_id);
+
+    if (
+        $payment_method === 'transfer'
+        && !paymentBankAccountComplete($selectedBankAccount)
+    ) {
+        header("Location: create-order.php?error=bank");
+        exit;
+    }
+
+    $proofValidation = paymentValidateProofUpload(
+        $_FILES['payment_proof'] ?? null
+    );
+
+    if (!$proofValidation['ok']) {
+        header("Location: create-order.php?error=proof");
         exit;
     }
 
@@ -184,6 +206,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         )
     ");
 
+    $proofUploaded = false;
+    $proofSaveFailed = false;
+
+    if (
+        $payment_method === 'transfer'
+        && !empty($proofValidation['has_file'])
+    ) {
+        $proofResult = paymentSaveProofUpload(
+            $order_id,
+            $user_id,
+            $mitra_id,
+            $_FILES['payment_proof'] ?? null
+        );
+
+        if (!empty($proofResult['ok'])) {
+            $proofUploaded = true;
+
+            mysqli_query($conn, "
+                UPDATE laundry_orders
+                SET payment_status='waiting_confirmation'
+                WHERE id='$order_id'
+            ");
+
+            mysqli_query($conn, "
+                UPDATE laundry_payments
+                SET payment_status='waiting_confirmation'
+                WHERE order_id='$order_id'
+            ");
+        } else {
+            $proofSaveFailed = true;
+        }
+    }
+
     if ($delivery_option === 'pickup_only' || $delivery_option === 'pickup_delivery') {
         $taskAddress = $pickup_address !== '' ? $pickup_address : $address;
 
@@ -254,9 +309,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 0
             )
         ");
+
+        if ($proofUploaded) {
+            mysqli_query($conn, "
+                INSERT INTO notifications(user_id,title,message,is_read)
+                VALUES(
+                    '{$mitra['user_id']}',
+                    'Bukti Pembayaran Baru',
+                    'Pelanggan mengunggah bukti pembayaran untuk pesanan #$order_id.',
+                    0
+                )
+            ");
+        }
     }
 
-    header("Location: orders.php?created=1");
+    $redirectUrl = "orders.php?created=1";
+
+    if ($proofUploaded) {
+        $redirectUrl .= "&proof_uploaded=1";
+    } elseif ($proofSaveFailed) {
+        $redirectUrl .= "&proof_error=upload";
+    }
+
+    header("Location: " . $redirectUrl);
     exit;
 }
 ?>
@@ -292,12 +367,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <?php if (isset($_GET['error'])) : ?>
         <div style="background:#fee2e2;color:#b91c1c;border-radius:18px;padding:14px 18px;font-weight:800;margin-bottom:22px;">
-            Gagal membuat pesanan. Pastikan data sudah lengkap.
+            <?php if ($_GET['error'] === 'bank') : ?>
+                Seller belum mengisi rekening pembayaran. Pilih COD atau seller lain.
+            <?php elseif ($_GET['error'] === 'proof') : ?>
+                Bukti pembayaran tidak valid. Gunakan JPG, PNG, atau WEBP maksimal 5 MB.
+            <?php else : ?>
+                Gagal membuat pesanan. Pastikan data sudah lengkap.
+            <?php endif; ?>
         </div>
     <?php endif; ?>
 
     <div class="modern-card" style="padding:24px;">
-        <form method="POST">
+        <form method="POST" enctype="multipart/form-data" id="createOrderForm">
 
             <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
 
@@ -322,6 +403,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     value="<?= $mitra['id']; ?>"
                                     data-pickup="<?= (int) $mitra['pickup_fee']; ?>"
                                     data-delivery="<?= (int) $mitra['delivery_fee']; ?>"
+                                    data-bank-name="<?= htmlspecialchars($bankAccounts[(string) $mitra['id']]['bank_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
+                                    data-account-number="<?= htmlspecialchars($bankAccounts[(string) $mitra['id']]['account_number'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
+                                    data-account-holder="<?= htmlspecialchars($bankAccounts[(string) $mitra['id']]['account_holder'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
                                 >
                                     <?= htmlspecialchars($mitra['mitra_name']); ?>
                                 </option>
@@ -367,10 +451,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <div>
                     <label style="font-weight:800;color:#0369a1;margin-bottom:7px;display:block;">Metode Pembayaran</label>
-                    <select name="payment_method" class="modern-input" required>
+                    <select name="payment_method" id="payment_method" class="modern-input" required>
                         <option value="cod">COD</option>
                         <option value="transfer">Transfer</option>
                     </select>
+                </div>
+
+                <div id="transferPaymentBox" style="grid-column:1/-1;display:none;background:#f8fdff;border:1px solid #bae6fd;border-radius:20px;padding:18px;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+                        <div>
+                            <p style="font-weight:900;color:#0369a1;margin:0 0 5px;">Rekening Pembayaran Seller</p>
+                            <p style="color:#64748b;font-size:13px;line-height:1.6;margin:0;">Transfer hanya ke rekening seller yang tampil di bawah ini.</p>
+                        </div>
+                        <span id="bankAvailabilityBadge" style="background:#fef3c7;color:#92400e;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:900;">Pilih seller</span>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;" class="payment-account-grid">
+                        <div style="background:#fff;border:1px solid #d8f1ff;border-radius:16px;padding:14px;">
+                            <span style="display:block;color:#64748b;font-size:12px;font-weight:800;margin-bottom:5px;">Bank</span>
+                            <strong id="bankNamePreview" style="color:#0f172a;">-</strong>
+                        </div>
+                        <div style="background:#fff;border:1px solid #d8f1ff;border-radius:16px;padding:14px;">
+                            <span style="display:block;color:#64748b;font-size:12px;font-weight:800;margin-bottom:5px;">Nomor Rekening</span>
+                            <strong id="accountNumberPreview" style="color:#0f172a;overflow-wrap:anywhere;">-</strong>
+                        </div>
+                        <div style="background:#fff;border:1px solid #d8f1ff;border-radius:16px;padding:14px;">
+                            <span style="display:block;color:#64748b;font-size:12px;font-weight:800;margin-bottom:5px;">Atas Nama</span>
+                            <strong id="accountHolderPreview" style="color:#0f172a;">-</strong>
+                        </div>
+                    </div>
+
+                    <label style="font-weight:800;color:#0369a1;margin-bottom:7px;display:block;">Upload Bukti Transfer</label>
+                    <input type="file" name="payment_proof" id="payment_proof" class="modern-input" accept="image/jpeg,image/png,image/webp">
+                    <p style="color:#64748b;font-size:12px;line-height:1.6;margin:8px 0 0;">
+                        Format JPG, PNG, atau WEBP maksimal 5 MB. Bukti boleh diunggah sekarang atau nanti melalui halaman Pesanan Saya setelah total final ditentukan seller.
+                    </p>
                 </div>
 
                 <div>
@@ -413,7 +528,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <style>
 @media (max-width: 900px) {
-    form div[style*="grid-template-columns:repeat(2,1fr)"] {
+    form div[style*="grid-template-columns:repeat(2,1fr)"],
+    .payment-account-grid {
         grid-template-columns: 1fr !important;
     }
 }
@@ -424,6 +540,12 @@ const mitraSelect = document.getElementById('mitra_id');
 const serviceSelect = document.getElementById('service_id');
 const deliveryOption = document.getElementById('delivery_option');
 const deliveryPreview = document.getElementById('deliveryPreview');
+const paymentMethod = document.getElementById('payment_method');
+const transferPaymentBox = document.getElementById('transferPaymentBox');
+const bankNamePreview = document.getElementById('bankNamePreview');
+const accountNumberPreview = document.getElementById('accountNumberPreview');
+const accountHolderPreview = document.getElementById('accountHolderPreview');
+const bankAvailabilityBadge = document.getElementById('bankAvailabilityBadge');
 
 function filterServices() {
     const mitraId = mitraSelect.value;
@@ -439,6 +561,7 @@ function filterServices() {
 
     serviceSelect.value = '';
     updateDeliveryPreview();
+    updatePaymentPanel();
 }
 
 function updateDeliveryPreview() {
@@ -464,8 +587,57 @@ function updateDeliveryPreview() {
     deliveryPreview.innerText = 'Biaya delivery: Rp ' + total.toLocaleString('id-ID');
 }
 
+function updatePaymentPanel() {
+    const selected = mitraSelect.options[mitraSelect.selectedIndex];
+    const isTransfer = paymentMethod.value === 'transfer';
+    const bankName = selected?.dataset?.bankName || '';
+    const accountNumber = selected?.dataset?.accountNumber || '';
+    const accountHolder = selected?.dataset?.accountHolder || '';
+    const hasAccount = Boolean(bankName && accountNumber && accountHolder);
+
+    transferPaymentBox.style.display = isTransfer ? 'block' : 'none';
+    bankNamePreview.textContent = bankName || '-';
+    accountNumberPreview.textContent = accountNumber || '-';
+    accountHolderPreview.textContent = accountHolder || '-';
+
+    if (!mitraSelect.value) {
+        bankAvailabilityBadge.textContent = 'Pilih seller';
+        bankAvailabilityBadge.style.background = '#fef3c7';
+        bankAvailabilityBadge.style.color = '#92400e';
+    } else if (hasAccount) {
+        bankAvailabilityBadge.textContent = 'Rekening tersedia';
+        bankAvailabilityBadge.style.background = '#dcfce7';
+        bankAvailabilityBadge.style.color = '#166534';
+    } else {
+        bankAvailabilityBadge.textContent = 'Rekening belum tersedia';
+        bankAvailabilityBadge.style.background = '#fee2e2';
+        bankAvailabilityBadge.style.color = '#b91c1c';
+    }
+}
+
 mitraSelect.addEventListener('change', filterServices);
 deliveryOption.addEventListener('change', updateDeliveryPreview);
+paymentMethod.addEventListener('change', updatePaymentPanel);
+
+updatePaymentPanel();
+
+document.getElementById('createOrderForm').addEventListener('submit', function (event) {
+    if (paymentMethod.value !== 'transfer') {
+        return;
+    }
+
+    const selected = mitraSelect.options[mitraSelect.selectedIndex];
+    const hasAccount = Boolean(
+        selected?.dataset?.bankName
+        && selected?.dataset?.accountNumber
+        && selected?.dataset?.accountHolder
+    );
+
+    if (!hasAccount) {
+        event.preventDefault();
+        alert('Seller belum mengisi rekening pembayaran. Pilih COD atau seller lain.');
+    }
+});
 </script>
 
 <script src="../../assets/js/modern.js"></script>

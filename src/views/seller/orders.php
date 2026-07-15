@@ -4,6 +4,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 include "../../config/database.php";
+require_once __DIR__ . "/../../config/payment-storage.php";
 
 if (!isset($_SESSION['user']) || !in_array($_SESSION['user']['role'], ['mitra', 'seller'])) {
     header("Location: ../public/login.php");
@@ -21,9 +22,29 @@ $mitra = mysqli_fetch_assoc(mysqli_query($conn, "
 "));
 
 $mitra_id = $mitra['id'] ?? 0;
+$bankAccount = paymentGetMitraBankAccount((int) $mitra_id);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $mitra) {
     $action = $_POST['action'] ?? '';
+
+    if ($action === 'save_bank_account') {
+        $bankName = (string) ($_POST['bank_name'] ?? '');
+        $accountNumber = (string) ($_POST['account_number'] ?? '');
+        $accountHolder = (string) ($_POST['account_holder'] ?? '');
+
+        if (paymentSaveMitraBankAccount(
+            (int) $mitra_id,
+            $bankName,
+            $accountNumber,
+            $accountHolder
+        )) {
+            header('Location: orders.php?bank_saved=1');
+            exit;
+        }
+
+        header('Location: orders.php?bank_error=1');
+        exit;
+    }
 
     if ($action === 'update_order') {
         $order_id = (int) ($_POST['order_id'] ?? 0);
@@ -268,6 +289,18 @@ function deliveryLabelSeller($option)
             </div>
         <?php endif; ?>
 
+        <?php if (isset($_GET['bank_saved'])) : ?>
+            <div style="background:#dcfce7;color:#166534;border-radius:18px;padding:14px 18px;font-weight:800;margin-bottom:22px;">
+                Rekening pembayaran berhasil disimpan tanpa mengubah struktur database.
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($_GET['bank_error'])) : ?>
+            <div style="background:#fee2e2;color:#b91c1c;border-radius:18px;padding:14px 18px;font-weight:800;margin-bottom:22px;">
+                Rekening gagal disimpan. Lengkapi nama bank, nomor rekening, dan nama pemilik rekening.
+            </div>
+        <?php endif; ?>
+
         <?php if (!$mitra) : ?>
 
             <div class="modern-card" style="padding:34px;text-align:center;">
@@ -281,6 +314,43 @@ function deliveryLabelSeller($option)
             </div>
 
         <?php else : ?>
+
+            <div class="modern-card seller-bank-card" style="padding:22px;margin-bottom:22px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px;">
+                    <div>
+                        <h2 style="font-size:21px;font-weight:900;color:#0f172a;margin:0;">Rekening Pembayaran Seller</h2>
+                        <p style="color:#64748b;font-size:13px;line-height:1.6;margin:6px 0 0;">
+                            Rekening ini otomatis ditampilkan kepada pelanggan yang memilih metode Transfer.
+                        </p>
+                    </div>
+                    <span style="background:<?= paymentBankAccountComplete($bankAccount) ? '#dcfce7' : '#fef3c7'; ?>;color:<?= paymentBankAccountComplete($bankAccount) ? '#166534' : '#92400e'; ?>;border-radius:999px;padding:8px 13px;font-size:12px;font-weight:900;">
+                        <?= paymentBankAccountComplete($bankAccount) ? 'Rekening Aktif' : 'Belum Lengkap'; ?>
+                    </span>
+                </div>
+
+                <form method="POST" class="seller-bank-form" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;">
+                    <input type="hidden" name="action" value="save_bank_account">
+
+                    <div>
+                        <label style="display:block;font-weight:800;color:#0369a1;margin-bottom:7px;">Nama Bank</label>
+                        <input type="text" name="bank_name" class="modern-input" value="<?= htmlspecialchars($bankAccount['bank_name'], ENT_QUOTES, 'UTF-8'); ?>" placeholder="Contoh: BCA" required>
+                    </div>
+
+                    <div>
+                        <label style="display:block;font-weight:800;color:#0369a1;margin-bottom:7px;">Nomor Rekening</label>
+                        <input type="text" name="account_number" class="modern-input" value="<?= htmlspecialchars($bankAccount['account_number'], ENT_QUOTES, 'UTF-8'); ?>" placeholder="Contoh: 1234567890" inputmode="numeric" required>
+                    </div>
+
+                    <div>
+                        <label style="display:block;font-weight:800;color:#0369a1;margin-bottom:7px;">Atas Nama</label>
+                        <input type="text" name="account_holder" class="modern-input" value="<?= htmlspecialchars($bankAccount['account_holder'], ENT_QUOTES, 'UTF-8'); ?>" placeholder="Nama pemilik rekening" required>
+                    </div>
+
+                    <button type="submit" class="modern-btn" style="min-height:47px;white-space:nowrap;">
+                        Simpan Rekening
+                    </button>
+                </form>
+            </div>
 
             <div class="modern-card" style="padding:16px;margin-bottom:22px;">
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -307,6 +377,13 @@ function deliveryLabelSeller($option)
                 <?php if ($orders && mysqli_num_rows($orders) > 0) : ?>
 
                     <?php while ($order = mysqli_fetch_assoc($orders)) : ?>
+
+                        <?php
+                        $paymentProof = paymentGetProof((int) $order['id']);
+                        $paymentProofAvailable = $paymentProof
+                            && is_file(paymentProofAbsolutePath($paymentProof));
+                        $paymentProofUrl = '../shared/payment-proof.php?order_id=' . (int) $order['id'];
+                        ?>
 
                         <div class="modern-card order-card" style="padding:22px;">
 
@@ -411,7 +488,52 @@ function deliveryLabelSeller($option)
                                 </div>
 
                                 <div class="modern-card" style="padding:19px;background:#f8fdff;">
-                                    <h3 style="font-size:20px;font-weight:800;color:#0369a1;margin-bottom:14px;">
+                                    <div class="seller-payment-proof-box">
+                                        <h3 style="font-size:18px;font-weight:900;color:#0369a1;margin:0 0 12px;">
+                                            Pembayaran Pelanggan
+                                        </h3>
+
+                                        <div style="display:grid;gap:8px;margin-bottom:12px;font-size:13px;">
+                                            <div style="display:flex;justify-content:space-between;gap:12px;">
+                                                <span style="color:#64748b;font-weight:700;">Metode</span>
+                                                <strong style="color:#0f172a;"><?= $order['payment_method'] === 'transfer' ? 'Transfer' : 'COD'; ?></strong>
+                                            </div>
+                                            <div style="display:flex;justify-content:space-between;gap:12px;">
+                                                <span style="color:#64748b;font-weight:700;">Tagihan</span>
+                                                <strong style="color:#0f172a;">Rp <?= number_format($order['total_price'], 0, ',', '.'); ?></strong>
+                                            </div>
+                                            <div style="display:flex;justify-content:space-between;gap:12px;">
+                                                <span style="color:#64748b;font-weight:700;">Status</span>
+                                                <strong style="color:#0f172a;"><?= strip_tags(paymentBadgeSeller($order['payment_status'])); ?></strong>
+                                            </div>
+                                        </div>
+
+                                        <?php if ($order['payment_method'] === 'transfer') : ?>
+                                            <?php if ($paymentProofAvailable) : ?>
+                                                <a href="<?= htmlspecialchars($paymentProofUrl, ENT_QUOTES, 'UTF-8'); ?>" target="_blank" rel="noopener" style="display:block;text-decoration:none;">
+                                                    <img
+                                                        src="<?= htmlspecialchars($paymentProofUrl, ENT_QUOTES, 'UTF-8'); ?>"
+                                                        alt="Bukti pembayaran order #<?= (int) $order['id']; ?>"
+                                                        class="seller-proof-preview"
+                                                    >
+                                                    <span style="display:block;text-align:center;color:#0369a1;font-size:12px;font-weight:900;">Buka bukti pembayaran</span>
+                                                </a>
+                                                <p style="color:#64748b;font-size:11px;line-height:1.5;margin:8px 0 0;">
+                                                    Diunggah <?= htmlspecialchars($paymentProof['uploaded_at'] ?? '-', ENT_QUOTES, 'UTF-8'); ?>.
+                                                </p>
+                                            <?php else : ?>
+                                                <div style="background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:14px;padding:12px;font-size:12px;font-weight:800;line-height:1.5;">
+                                                    Pelanggan belum mengunggah bukti transfer.
+                                                </div>
+                                            <?php endif; ?>
+                                        <?php else : ?>
+                                            <div style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:12px;font-size:12px;font-weight:800;line-height:1.5;">
+                                                Pembayaran dilakukan secara COD sehingga tidak memerlukan bukti transfer.
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+
+                                    <h3 style="font-size:20px;font-weight:800;color:#0369a1;margin:18px 0 14px;">
                                         Update Pesanan
                                     </h3>
 
@@ -484,10 +606,29 @@ function deliveryLabelSeller($option)
 </main>
 
 <style>
+.seller-proof-preview {
+    display:block;
+    width:100%;
+    max-height:260px;
+    object-fit:contain;
+    border:1px solid #bae6fd;
+    border-radius:14px;
+    background:#ffffff;
+    margin-bottom:8px;
+}
+
+.seller-payment-proof-box {
+    padding:15px;
+    border:1px solid #bae6fd;
+    border-radius:17px;
+    background:#ffffff;
+}
+
 @media (max-width: 1100px) {
     .order-card > div,
     .order-card div[style*="grid-template-columns:repeat(4,1fr)"],
-    details div[style*="grid-template-columns:1fr 1fr"] {
+    details div[style*="grid-template-columns:1fr 1fr"],
+    .seller-bank-form {
         grid-template-columns: 1fr !important;
     }
 }

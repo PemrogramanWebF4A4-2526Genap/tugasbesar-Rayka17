@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../config/payment-storage.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -64,6 +65,123 @@ if (
 }
 
 $userId = (int) $userId;
+
+/*
+|--------------------------------------------------------------------------
+| UPLOAD BUKTI PEMBAYARAN TANPA PERUBAHAN STRUKTUR DATABASE
+|--------------------------------------------------------------------------
+*/
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = (string) ($_POST['action'] ?? '');
+
+    if ($action === 'upload_payment_proof') {
+        $orderId = (int) ($_POST['order_id'] ?? 0);
+
+        $orderResult = mysqli_query($conn, "
+            SELECT id, user_id, mitra_id, payment_method, payment_status, total_price
+            FROM laundry_orders
+            WHERE id='$orderId'
+            AND user_id='$userId'
+            LIMIT 1
+        ");
+
+        $paymentOrder = $orderResult
+            ? mysqli_fetch_assoc($orderResult)
+            : null;
+
+        if (!$paymentOrder || $paymentOrder['payment_method'] !== 'transfer') {
+            header('Location: orders.php?proof_error=order');
+            exit;
+        }
+
+        if ($paymentOrder['payment_status'] === 'paid') {
+            header('Location: orders.php?proof_error=paid');
+            exit;
+        }
+
+        $proofResult = paymentSaveProofUpload(
+            $orderId,
+            $userId,
+            (int) $paymentOrder['mitra_id'],
+            $_FILES['payment_proof'] ?? null
+        );
+
+        if (empty($proofResult['ok']) || empty($proofResult['has_file'])) {
+            header('Location: orders.php?proof_error=upload');
+            exit;
+        }
+
+        mysqli_query($conn, "
+            UPDATE laundry_orders
+            SET payment_status='waiting_confirmation'
+            WHERE id='$orderId'
+            AND user_id='$userId'
+        ");
+
+        $paymentExistsResult = mysqli_query($conn, "
+            SELECT id
+            FROM laundry_payments
+            WHERE order_id='$orderId'
+            LIMIT 1
+        ");
+        $paymentExists = $paymentExistsResult
+            ? mysqli_fetch_assoc($paymentExistsResult)
+            : null;
+
+        if ($paymentExists) {
+            mysqli_query($conn, "
+                UPDATE laundry_payments
+                SET
+                    amount='{$paymentOrder['total_price']}',
+                    payment_status='waiting_confirmation'
+                WHERE order_id='$orderId'
+            ");
+        } else {
+            mysqli_query($conn, "
+                INSERT INTO laundry_payments(
+                    order_id,
+                    user_id,
+                    payment_method,
+                    amount,
+                    payment_status
+                )
+                VALUES(
+                    '$orderId',
+                    '$userId',
+                    'transfer',
+                    '{$paymentOrder['total_price']}',
+                    'waiting_confirmation'
+                )
+            ");
+        }
+
+        $mitraUserResult = mysqli_query($conn, "
+            SELECT user_id
+            FROM laundry_mitras
+            WHERE id='{$paymentOrder['mitra_id']}'
+            LIMIT 1
+        ");
+        $mitraUser = $mitraUserResult
+            ? mysqli_fetch_assoc($mitraUserResult)
+            : null;
+
+        if (!empty($mitraUser['user_id'])) {
+            mysqli_query($conn, "
+                INSERT INTO notifications(user_id,title,message,is_read)
+                VALUES(
+                    '{$mitraUser['user_id']}',
+                    'Bukti Pembayaran Baru',
+                    'Pelanggan mengunggah bukti pembayaran untuk pesanan #$orderId.',
+                    0
+                )
+            ");
+        }
+
+        header('Location: orders.php?proof_uploaded=1');
+        exit;
+    }
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -823,6 +941,95 @@ $complaintUrl =
             grid-column: 1 / -1;
         }
 
+        .order-payment-panel {
+            display: grid;
+            margin-top: 13px;
+            padding: 16px;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 14px;
+            border: 1px solid var(--orders-border);
+            border-radius: 17px;
+            background: #f0f9ff;
+        }
+
+        .order-payment-box {
+            min-width: 0;
+            padding: 15px;
+            border: 1px solid #d8f1ff;
+            border-radius: 15px;
+            background: var(--orders-white);
+        }
+
+        .order-payment-box h3 {
+            margin: 0 0 10px;
+            color: var(--orders-dark-blue);
+            font-size: 16px;
+            font-weight: 800;
+        }
+
+        .order-bank-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .order-bank-row {
+            display: grid;
+            grid-template-columns: 110px minmax(0, 1fr);
+            gap: 10px;
+            color: var(--orders-muted);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .order-bank-row strong {
+            color: var(--orders-dark);
+            overflow-wrap: anywhere;
+        }
+
+        .order-proof-preview {
+            display: block;
+            width: 100%;
+            max-height: 230px;
+            margin-bottom: 11px;
+            object-fit: contain;
+            border: 1px solid var(--orders-border);
+            border-radius: 13px;
+            background: #f8fafc;
+        }
+
+        .order-upload-form {
+            display: grid;
+            margin-top: 12px;
+            gap: 10px;
+        }
+
+        .order-file-input {
+            width: 100%;
+            min-height: 45px;
+            padding: 9px 11px;
+            border: 1px solid var(--orders-border);
+            border-radius: 12px;
+            background: var(--orders-white);
+            color: var(--orders-dark);
+        }
+
+        .order-upload-button {
+            min-height: 43px;
+            border: 0;
+            border-radius: 999px;
+            background: linear-gradient(135deg, var(--orders-secondary), #2563eb);
+            color: var(--orders-white);
+            cursor: pointer;
+            font-weight: 800;
+        }
+
+        .order-payment-note {
+            margin: 8px 0 0;
+            color: var(--orders-muted);
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
         /*
         |--------------------------------------------------------------------------
         | EMPTY
@@ -938,8 +1145,14 @@ $complaintUrl =
             }
 
             .order-summary,
-            .order-detail-grid {
+            .order-detail-grid,
+            .order-payment-panel {
                 grid-template-columns: 1fr;
+            }
+
+            .order-bank-row {
+                grid-template-columns: 1fr;
+                gap: 2px;
             }
 
             .order-detail-item-full {
@@ -1024,6 +1237,24 @@ require_once __DIR__
                 Pesanan laundry berhasil dibuat.
             </div>
 
+        <?php endif; ?>
+
+        <?php if (isset($_GET['proof_uploaded'])) : ?>
+            <div class="orders-alert">
+                Bukti pembayaran berhasil diunggah dan sedang menunggu konfirmasi seller.
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($_GET['proof_error'])) : ?>
+            <div class="orders-alert" style="background:#fee2e2;border-color:#fecaca;color:#b91c1c;">
+                <?php if ($_GET['proof_error'] === 'paid') : ?>
+                    Pembayaran sudah dinyatakan lunas sehingga bukti tidak perlu diganti.
+                <?php elseif ($_GET['proof_error'] === 'order') : ?>
+                    Bukti pembayaran hanya dapat diunggah untuk pesanan transfer milik Anda.
+                <?php else : ?>
+                    Bukti pembayaran gagal diunggah. Gunakan JPG, PNG, atau WEBP maksimal 5 MB.
+                <?php endif; ?>
+            </div>
         <?php endif; ?>
 
         <nav
@@ -1162,6 +1393,24 @@ require_once __DIR__
                         $order['payment_method']
                         ?? 'cod';
 
+                    $orderId = (int) (
+                        $order['id']
+                        ?? 0
+                    );
+
+                    $bankAccount = paymentGetMitraBankAccount(
+                        (int) ($order['mitra_id'] ?? 0)
+                    );
+
+                    $bankAccountAvailable = paymentBankAccountComplete(
+                        $bankAccount
+                    );
+
+                    $paymentProof = paymentGetProof($orderId);
+                    $paymentProofAvailable = $paymentProof
+                        && is_file(paymentProofAbsolutePath($paymentProof));
+                    $paymentProofUrl = '../shared/payment-proof.php?order_id=' . $orderId;
+
                     ?>
 
                     <article class="order-card">
@@ -1295,6 +1544,80 @@ require_once __DIR__
                             </div>
 
                         </div>
+
+                        <?php if ($paymentMethod === 'transfer') : ?>
+                            <section class="order-payment-panel">
+                                <div class="order-payment-box">
+                                    <h3>Rekening Pembayaran</h3>
+
+                                    <?php if ($bankAccountAvailable) : ?>
+                                        <div class="order-bank-list">
+                                            <div class="order-bank-row">
+                                                <span>Bank</span>
+                                                <strong><?= buyerOrderEscape($bankAccount['bank_name']); ?></strong>
+                                            </div>
+                                            <div class="order-bank-row">
+                                                <span>No. Rekening</span>
+                                                <strong><?= buyerOrderEscape($bankAccount['account_number']); ?></strong>
+                                            </div>
+                                            <div class="order-bank-row">
+                                                <span>Atas Nama</span>
+                                                <strong><?= buyerOrderEscape($bankAccount['account_holder']); ?></strong>
+                                            </div>
+                                            <div class="order-bank-row">
+                                                <span>Total Tagihan</span>
+                                                <strong><?= buyerOrderEscape(buyerOrderRupiah($totalPrice)); ?></strong>
+                                            </div>
+                                        </div>
+                                        <p class="order-payment-note">Pastikan nomor rekening dan nama penerima sesuai sebelum melakukan transfer.</p>
+                                    <?php else : ?>
+                                        <p class="order-payment-note" style="margin-top:0;color:#b91c1c;font-weight:700;">
+                                            Seller belum mengisi rekening pembayaran. Hubungi seller atau gunakan pembayaran COD pada pesanan berikutnya.
+                                        </p>
+                                    <?php endif; ?>
+                                </div>
+
+                                <div class="order-payment-box">
+                                    <h3>Bukti Pembayaran</h3>
+
+                                    <?php if ($paymentProofAvailable) : ?>
+                                        <a href="<?= buyerOrderEscape($paymentProofUrl); ?>" target="_blank" rel="noopener">
+                                            <img
+                                                src="<?= buyerOrderEscape($paymentProofUrl); ?>"
+                                                alt="Bukti pembayaran order #<?= $orderId; ?>"
+                                                class="order-proof-preview"
+                                            >
+                                        </a>
+                                        <p class="order-payment-note" style="margin-top:0;">
+                                            Diunggah <?= buyerOrderEscape(buyerOrderDate($paymentProof['uploaded_at'] ?? null)); ?>.
+                                            Status: <?= buyerOrderEscape(buyerOrderPaymentLabel($paymentStatus)); ?>.
+                                        </p>
+                                    <?php else : ?>
+                                        <p class="order-payment-note" style="margin-top:0;">
+                                            Belum ada bukti pembayaran yang diunggah.
+                                        </p>
+                                    <?php endif; ?>
+
+                                    <?php if ($paymentStatus !== 'paid' && $bankAccountAvailable) : ?>
+                                        <form method="POST" enctype="multipart/form-data" class="order-upload-form">
+                                            <input type="hidden" name="action" value="upload_payment_proof">
+                                            <input type="hidden" name="order_id" value="<?= $orderId; ?>">
+                                            <input
+                                                type="file"
+                                                name="payment_proof"
+                                                class="order-file-input"
+                                                accept="image/jpeg,image/png,image/webp"
+                                                required
+                                            >
+                                            <button type="submit" class="order-upload-button">
+                                                <?= $paymentProofAvailable ? 'Ganti Bukti Pembayaran' : 'Upload Bukti Pembayaran'; ?>
+                                            </button>
+                                        </form>
+                                        <p class="order-payment-note">JPG, PNG, atau WEBP maksimal 5 MB.</p>
+                                    <?php endif; ?>
+                                </div>
+                            </section>
+                        <?php endif; ?>
 
                         <details class="order-detail">
 

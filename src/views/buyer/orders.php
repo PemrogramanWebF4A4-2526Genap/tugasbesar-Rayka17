@@ -469,6 +469,15 @@ $complaintUrl =
 <!DOCTYPE html>
 <html lang="id">
 <head>
+    <!-- Laundry UMKM browser icon -->
+    <link rel="icon" type="image/svg+xml" href="../../assets/images/favicon.svg?v=7">
+    <link rel="icon" type="image/png" sizes="32x32" href="../../assets/images/favicon-32x32.png?v=7">
+    <link rel="icon" type="image/png" sizes="16x16" href="../../assets/images/favicon-16x16.png?v=7">
+    <link rel="shortcut icon" href="../../assets/images/favicon.ico?v=7">
+    <link rel="apple-touch-icon" sizes="180x180" href="../../assets/images/apple-touch-icon.png?v=7">
+    <link rel="manifest" href="../../assets/images/site.webmanifest?v=7">
+    <meta name="theme-color" content="#0ea5e9">
+
     <meta charset="UTF-8">
 
     <meta
